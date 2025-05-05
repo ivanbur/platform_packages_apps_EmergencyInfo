@@ -26,22 +26,16 @@ import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
-//import android.content.UriMatcher;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteQueryBuilder;
 import android.net.Uri;
 import android.os.Build;
 import android.text.TextUtils;
-//import android.util.ArrayMap;
 
 import androidx.annotation.NonNull;
 
 import java.util.Objects;
-
-//import org.mockito.internal.matchers.Null;
-
-//import java.util.Map;
 
 public class EmergencyContactProvider extends ContentProvider {
 
@@ -93,24 +87,6 @@ public class EmergencyContactProvider extends ContentProvider {
 //        }
 
         return ret;
-    }
-
-    @Override
-    public String getType(@NonNull Uri uri) {
-//        int match = sURIMatcher.match(uri);
-//        switch (match) {
-//            case ALARMS:
-//                return "vnd.android.cursor.dir/alarms";
-//            case ALARMS_ID:
-//                return "vnd.android.cursor.item/alarms";
-//            case INSTANCES:
-//                return "vnd.android.cursor.dir/instances";
-//            case INSTANCES_ID:
-//                return "vnd.android.cursor.item/instances";
-//            default:
-//                throw new IllegalArgumentException("Unknown URI");
-//        }
-        return "oh boy";
     }
 
     @Override

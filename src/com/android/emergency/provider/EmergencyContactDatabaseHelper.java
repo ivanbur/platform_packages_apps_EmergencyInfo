@@ -53,7 +53,6 @@ class EmergencyContactDatabaseHelper extends SQLiteOpenHelper {
     static final String CONTACT_URI = "contact_uri";
 
     private static void createEmergencyContactsTable(SQLiteDatabase db) {
-//        db.execSQL("DROP TABLE IF EXISTS " + EMERGENCY_CONTACTS_TABLE_NAME + ";");
         db.execSQL("CREATE TABLE " + EMERGENCY_CONTACTS_TABLE_NAME + " (" +
                 ContactsContract.Contacts._ID + " INTEGER PRIMARY KEY, " +
                 ContactsContract.Contacts.DISPLAY_NAME + " TEXT, " +
@@ -64,8 +63,6 @@ class EmergencyContactDatabaseHelper extends SQLiteOpenHelper {
                 ContactsContract.Contacts.LOOKUP_KEY + " TEXT, " +
                 CONTACT_URI + " TEXT NOT NULL" +
                 ");");
-
-//        LogUtils.i("Alarms Table created");
     }
 
     public EmergencyContactDatabaseHelper(Context context) {
