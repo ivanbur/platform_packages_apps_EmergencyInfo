@@ -15,15 +15,20 @@
  */
 package com.android.emergency.preferences;
 
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.TypedArray;
+import android.database.Cursor;
 import android.net.Uri;
 import androidx.annotation.NonNull;
 import android.os.UserManager;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceCategory;
 import androidx.preference.PreferenceManager;
+
+import android.provider.ContactsContract;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.widget.Toast;
@@ -31,13 +36,13 @@ import android.widget.Toast;
 import com.android.emergency.EmergencyContactManager;
 import com.android.emergency.R;
 import com.android.emergency.ReloadablePreferenceInterface;
+import com.android.emergency.provider.EmergencyContactProvider;
 import com.android.emergency.util.PreferenceUtils;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -45,7 +50,8 @@ import java.util.regex.Pattern;
 /**
  * Custom {@link PreferenceCategory} that deals with contacts being deleted from the contacts app.
  *
- * <p>Contacts are stored internally using their ContactsContract.CommonDataKinds.Phone.CONTENT_URI.
+ * <p>Contacts are stored internally using their emergencyContactPhoneUri, which contains a link to
+ * their ContactsContract.CommonDataKinds.Phone.CONTENT_URI, among other things.
  */
 public class EmergencyContactsPreference extends PreferenceCategory
         implements ReloadablePreferenceInterface,
@@ -64,7 +70,7 @@ public class EmergencyContactsPreference extends PreferenceCategory
 
     private final ContactValidator mContactValidator;
     private final ContactPreference.ContactFactory mContactFactory;
-    /** Stores the emergency contact's ContactsContract.CommonDataKinds.Phone.CONTENT_URI */
+    /** Stores the emergency contact's emergencyContactPhoneUri  */
     private List<Uri> mEmergencyContacts = new ArrayList<Uri>();
     private boolean mEmergencyContactsSet = false;
 
@@ -132,22 +138,127 @@ public class EmergencyContactsPreference extends PreferenceCategory
         }
     }
 
+    private ContentValues createContentValuesFromContactsUri(Uri contactsPhoneUri) {
+        // Extract values from original contact
+        ContentValues values = null;
+        Cursor cursor = getContext().getContentResolver().query(
+                contactsPhoneUri,
+                new String[]{ContactsContract.Contacts._ID,
+                        ContactsContract.Contacts.DISPLAY_NAME,
+                        ContactsContract.CommonDataKinds.Phone.NUMBER,
+                        ContactsContract.CommonDataKinds.Phone.TYPE,
+                        ContactsContract.CommonDataKinds.Phone.LABEL,
+                        ContactsContract.CommonDataKinds.Photo.PHOTO_ID},
+                null, null, null);
+
+        if (cursor == null) {
+            return null;
+        }
+
+        try {
+            if (cursor.moveToNext()) {
+                int id = cursor.getInt(0);
+                String name = cursor.getString(1);
+                String phoneNumber = cursor.getString(2);
+                int type = cursor.getInt(3);
+                String label = cursor.getString(4);
+                Long photoId = cursor.getLong(5);
+                Uri contactLookupUri = ContactsContract.Contacts.getLookupUri(getContext().getContentResolver(), contactsPhoneUri);
+                String contactLookup = String.valueOf(contactLookupUri);
+                String uriAsString = String.valueOf(contactsPhoneUri);
+
+                values = new ContentValues();
+                values.put(ContactsContract.Contacts._ID, id);
+                values.put(ContactsContract.Contacts.DISPLAY_NAME, name);
+                values.put(ContactsContract.CommonDataKinds.Phone.NUMBER, phoneNumber);
+                values.put(ContactsContract.CommonDataKinds.Phone.TYPE, type);
+                values.put(ContactsContract.CommonDataKinds.Phone.LABEL, label);
+                values.put(ContactsContract.CommonDataKinds.Photo.PHOTO_ID, photoId);
+                values.put(ContactsContract.Contacts.LOOKUP_KEY, contactLookup);
+                values.put(EmergencyContactProvider.CONTACT_URI_COLUMN, uriAsString);
+            }
+        } finally {
+            cursor.close();
+        }
+        return values;
+    }
+
+    private ContentValues createContentValuesFromEmergencyContactsUri(Uri contactsPhoneUri) {
+        // Extract values from original contact
+        ContentValues values = null;
+        Cursor cursor = getContext().getContentResolver().query(
+                contactsPhoneUri,
+                new String[]{ContactsContract.Contacts._ID,
+                        ContactsContract.Contacts.DISPLAY_NAME,
+                        ContactsContract.CommonDataKinds.Phone.NUMBER,
+                        ContactsContract.CommonDataKinds.Phone.TYPE,
+                        ContactsContract.CommonDataKinds.Phone.LABEL,
+                        ContactsContract.CommonDataKinds.Photo.PHOTO_ID,
+                        ContactsContract.Contacts.LOOKUP_KEY,
+                        EmergencyContactProvider.CONTACT_URI_COLUMN},
+                null, null, null);
+
+        if (cursor == null) {
+            return null;
+        }
+
+        try {
+            if (cursor.moveToNext()) {
+                int id = cursor.getInt(0);
+                String name = cursor.getString(1);
+                String phoneNumber = cursor.getString(2);
+                int type = cursor.getInt(3);
+                String label = cursor.getString(4);
+                Long photoId = cursor.getLong(5);
+                String contactLookup = cursor.getString(6);
+                String uriAsString = cursor.getString(7);
+
+                values = new ContentValues();
+                values.put(ContactsContract.Contacts._ID, id);
+                values.put(ContactsContract.Contacts.DISPLAY_NAME, name);
+                values.put(ContactsContract.CommonDataKinds.Phone.NUMBER, phoneNumber);
+                values.put(ContactsContract.CommonDataKinds.Phone.TYPE, type);
+                values.put(ContactsContract.CommonDataKinds.Phone.LABEL, label);
+                values.put(ContactsContract.CommonDataKinds.Photo.PHOTO_ID, photoId);
+                values.put(ContactsContract.Contacts.LOOKUP_KEY, contactLookup);
+                values.put(EmergencyContactProvider.CONTACT_URI_COLUMN, uriAsString);
+            }
+        } finally {
+            cursor.close();
+        }
+        return values;
+    }
+
     /**
      * Adds a new emergency contact. The {@code phoneUri} is the
      * ContactsContract.CommonDataKinds.Phone.CONTENT_URI corresponding to the
      * contact's selected phone number.
      */
-    public void addNewEmergencyContact(Uri phoneUri) {
-        if (mEmergencyContacts.contains(phoneUri)) {
+    public void addNewEmergencyContact(Uri contactsPhoneUri) {
+        // The contactsPhoneUri comes from the Contacts app, so it is a
+        // ContactsContract.CommonDataKinds.Phone.CONTENT_URI. We change it to be
+        // an emergencyContactsPhoneUri.
+
+        ContentValues values = createContentValuesFromContactsUri(contactsPhoneUri);
+        if (values == null) {
+            // This means that we could not look up the contact
             return;
         }
-        if (!mContactValidator.isValidEmergencyContact(getContext(), phoneUri)) {
+
+        Uri eContactsPhoneUri = Uri.withAppendedPath(EmergencyContactProvider.AUTHORITY_URI, values.getAsString(ContactsContract.Contacts._ID));
+        if (mEmergencyContacts.contains(eContactsPhoneUri)) {
+            return;
+        }
+
+        getContext().getContentResolver().insert(eContactsPhoneUri, values);
+
+        if (!mContactValidator.isValidEmergencyContact(getContext(), eContactsPhoneUri)) {
             Toast.makeText(getContext(), getContext().getString(R.string.fail_add_contact),
                 Toast.LENGTH_LONG).show();
             return;
         }
         List<Uri> updatedContacts = new ArrayList<Uri>(mEmergencyContacts);
-        if (updatedContacts.add(phoneUri) && callChangeListener(updatedContacts)) {
+        if (updatedContacts.add(eContactsPhoneUri) && callChangeListener(updatedContacts)) {
             MetricsLogger.action(getContext(), MetricsEvent.ACTION_ADD_EMERGENCY_CONTACT);
             setEmergencyContacts(updatedContacts);
         }
@@ -158,8 +269,30 @@ public class EmergencyContactsPreference extends PreferenceCategory
         return mEmergencyContacts;
     }
 
+    public void updateEmergencyContactsDatabase(List<Uri> oldEmergencyContacts) {
+        for (Uri eContactPhoneUri : oldEmergencyContacts) {
+            if (!mEmergencyContacts.contains(eContactPhoneUri)) {
+                getContext().getContentResolver().delete(eContactPhoneUri, null, null);
+            } else if (isUserUnlocked(getContext())) {
+                ContentValues old_data = createContentValuesFromEmergencyContactsUri(eContactPhoneUri);
+                // Will only be null if the query fails, which means that it doesn't exist in the database
+                if (old_data != null) {
+                    ContentValues new_data = createContentValuesFromContactsUri(Uri.parse(
+                            old_data.getAsString(EmergencyContactProvider.CONTACT_URI_COLUMN)));
+                    if (!old_data.equals(new_data)) {
+                        getContext().getContentResolver().update(eContactPhoneUri, new_data, null,
+                                null);
+                    }
+                } else {
+                    // TODO: log
+                }
+            }
+        }
+    }
+
     public void setEmergencyContacts(List<Uri> emergencyContacts) {
         final boolean changed = !mEmergencyContacts.equals(emergencyContacts);
+        List<Uri> oldEmergencyContacts = new ArrayList<Uri>(mEmergencyContacts);
         if (changed || !mEmergencyContactsSet) {
             mEmergencyContacts = emergencyContacts;
             mEmergencyContactsSet = true;
@@ -168,6 +301,7 @@ public class EmergencyContactsPreference extends PreferenceCategory
                 notifyChanged();
             }
         }
+        updateEmergencyContactsDatabase(oldEmergencyContacts);
 
         while (getPreferenceCount() - emergencyContacts.size() > 0) {
             removePreference(getPreference(0));
@@ -290,13 +424,19 @@ public class EmergencyContactsPreference extends PreferenceCategory
     private static List<Uri> deserializeAndFilter(String key, Context context,
                                                   String emergencyContactString,
                                                   ContactValidator contactValidator) {
+        if (TextUtils.isEmpty(emergencyContactString)) {
+            return new ArrayList<Uri>(0);
+        }
         String[] emergencyContactsArray =
                 emergencyContactString.split(QUOTE_CONTACT_SEPARATOR);
         List<Uri> filteredEmergencyContacts = new ArrayList<Uri>(emergencyContactsArray.length);
+        List<Uri> emergencyContactsToRemove = new ArrayList<Uri>(emergencyContactsArray.length);
         for (String emergencyContact : emergencyContactsArray) {
             Uri phoneUri = Uri.parse(emergencyContact);
             if (contactValidator.isValidEmergencyContact(context, phoneUri)) {
                 filteredEmergencyContacts.add(phoneUri);
+            } else {
+                emergencyContactsToRemove.add(phoneUri);
             }
         }
         // If not all contacts were added, then we need to overwrite the emergency contacts stored
@@ -309,6 +449,12 @@ public class EmergencyContactsPreference extends PreferenceCategory
                 SharedPreferences sharedPreferences =
                         PreferenceManager.getDefaultSharedPreferences(context);
                 sharedPreferences.edit().putString(key, emergencyContactStrings).commit();
+
+                // Go through and remove the invalid emergency contacts from the emergency
+                // contacts database
+                for (Uri emergencyContact : emergencyContactsToRemove) {
+                    context.getContentResolver().delete(emergencyContact, null);
+                }
             }
         }
         return filteredEmergencyContacts;
@@ -318,5 +464,4 @@ public class EmergencyContactsPreference extends PreferenceCategory
         UserManager userManager = context.getSystemService(UserManager.class);
         return userManager != null && userManager.isUserUnlocked();
     }
-
 }
