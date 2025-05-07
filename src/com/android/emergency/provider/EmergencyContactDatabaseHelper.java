@@ -16,26 +16,10 @@
 
 package com.android.emergency.provider;
 
-import static android.platform.uiautomatorhelpers.DeviceHelpers.getContext;
-
-import android.content.ContentValues;
 import android.content.Context;
-import android.content.SharedPreferences;
-import android.provider.ContactsContract;
-import android.database.Cursor;
-import android.database.SQLException;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
-import android.net.Uri;
-import android.text.TextUtils;
-
-import com.android.emergency.PreferenceKeys;
-import com.android.emergency.preferences.*;
-import android.preference.*;
-
-import androidx.preference.PreferenceManager;
-
-import java.util.Calendar;
+import android.provider.ContactsContract;
 
 /**
  * Helper class for opening the database from multiple providers.  Also provides
@@ -49,7 +33,7 @@ class EmergencyContactDatabaseHelper extends SQLiteOpenHelper {
 
     // Database and table names
     static final String DATABASE_NAME = "emergencycontacts.db";
-    static final String EMERGENCY_CONTACTS_TABLE_NAME = "emergency_contacts_tables";
+    static final String EMERGENCY_CONTACTS_TABLE_NAME = "data";
     static final String CONTACT_URI = "contact_uri";
 
     private static void createEmergencyContactsTable(SQLiteDatabase db) {

@@ -16,6 +16,7 @@
 
 package com.android.emergency.provider;
 
+import android.content.UriMatcher;
 import android.provider.ContactsContract;
 import static com.android.emergency.provider.EmergencyContactDatabaseHelper.EMERGENCY_CONTACTS_TABLE_NAME;
 import static com.android.emergency.provider.EmergencyContactDatabaseHelper.CONTACT_URI;
@@ -32,8 +33,10 @@ import android.database.sqlite.SQLiteQueryBuilder;
 import android.net.Uri;
 import android.os.Build;
 import android.text.TextUtils;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.util.Objects;
 
@@ -41,8 +44,22 @@ public class EmergencyContactProvider extends ContentProvider {
 
     private EmergencyContactDatabaseHelper mOpenHelper;
 
+    private static final int EMERGENCY_CONTACT_DATA = 1;
+    private static final int EMERGENCY_CONTACT_DATA_ID = 2;
+
+
     public static final String CONTACT_URI_COLUMN = CONTACT_URI;
-    public static final Uri AUTHORITY_URI = Uri.parse("content://com.android.emergency.contacts");
+
+    public static final String AUTHORITY = "com.android.emergency.contacts";
+    public static final Uri AUTHORITY_URI = Uri.parse("content://"+AUTHORITY);
+
+    private static final UriMatcher sURIMatcher = new UriMatcher(UriMatcher.NO_MATCH);
+    static {
+        sURIMatcher.addURI(AUTHORITY, "/data", EMERGENCY_CONTACT_DATA);
+        sURIMatcher.addURI(AUTHORITY, "/data/#", EMERGENCY_CONTACT_DATA_ID);
+    }
+
+    private static final String TAG = "EmergencyContactsProvider";
 
     public EmergencyContactProvider() {
     }
@@ -51,26 +68,21 @@ public class EmergencyContactProvider extends ContentProvider {
     @TargetApi(Build.VERSION_CODES.N)
     public boolean onCreate() {
         final Context context = getContext();
-        final Context storageContext;
-//        if (Utils.isNOrLater()) {
-//            // All N devices have split storage areas, but we may need to
-//            // migrate existing database into the new device encrypted
-//            // storage area, which is where our data lives from now on.
-        storageContext = context.createDeviceProtectedStorageContext();
-//            if (!storageContext.moveDatabaseFrom(context, ClockDatabaseHelper.DATABASE_NAME)) {
-//                LogUtils.wtf("Failed to migrate database: %s", ClockDatabaseHelper.DATABASE_NAME);
-//            }
-//        } else {
-//            storageContext = context;
-//        }
-
+        final Context storageContext = context.createDeviceProtectedStorageContext();
         mOpenHelper = new EmergencyContactDatabaseHelper(storageContext);
         return true;
     }
 
+
+
     @Override
     public Cursor query(@NonNull Uri uri, String[] projectionIn, String selection,
             String[] selectionArgs, String sort) {
+        int match = sURIMatcher.match(uri);
+        if (match != EMERGENCY_CONTACT_DATA && match != EMERGENCY_CONTACT_DATA_ID) {
+            throw new UnsupportedOperationException("Cannot query URI: " + uri);
+        }
+
         SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
         SQLiteDatabase db = mOpenHelper.getReadableDatabase();
 
@@ -80,17 +92,35 @@ public class EmergencyContactProvider extends ContentProvider {
 
         Cursor ret = qb.query(db, projectionIn, selection, selectionArgs, null, null, sort);
 
-//        if (ret == null) {
-//            LogUtils.e("Alarms.query: failed");
-//        } else {
-        ret.setNotificationUri(getContext().getContentResolver(), uri);
-//        }
+        if (ret == null) {
+            Log.w(TAG, "Emergency Contact Query failed");
+        } else {
+            ret.setNotificationUri(getContext().getContentResolver(), uri);
+        }
 
         return ret;
     }
 
     @Override
+    public String getType(@NonNull Uri uri) {
+        int match = sURIMatcher.match(uri);
+        switch (match) {
+            case EMERGENCY_CONTACT_DATA:
+                return "vnd.android.cursor.dir/data";
+            case EMERGENCY_CONTACT_DATA_ID:
+                return "vnd.android.cursor.item/data";
+            default:
+                throw new IllegalArgumentException("Unknown URI: " + uri);
+        }
+    }
+
+    @Override
     public int update(@NonNull Uri uri, ContentValues values, String where, String[] whereArgs) {
+        int match = sURIMatcher.match(uri);
+        if (match != EMERGENCY_CONTACT_DATA_ID) {
+            throw new UnsupportedOperationException("Cannot update URI: " + uri);
+        }
+
         int count;
         String primaryKey = uri.getLastPathSegment();
         if (TextUtils.isEmpty(where)) {
@@ -106,6 +136,11 @@ public class EmergencyContactProvider extends ContentProvider {
 
     @Override
     public Uri insert(@NonNull Uri uri, ContentValues initialValues) {
+        int match = sURIMatcher.match(uri);
+        if (match != EMERGENCY_CONTACT_DATA_ID) {
+            throw new UnsupportedOperationException("Cannot insert URI: " + uri);
+        }
+
         long rowId;
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
         rowId = db.insert(EMERGENCY_CONTACTS_TABLE_NAME, null, initialValues);
@@ -116,6 +151,11 @@ public class EmergencyContactProvider extends ContentProvider {
 
     @Override
     public int delete(@NonNull Uri uri, String where, String[] whereArgs) {
+        int match = sURIMatcher.match(uri);
+        if (match != EMERGENCY_CONTACT_DATA_ID) {
+            throw new UnsupportedOperationException("Cannot delete URI: " + uri);
+        }
+
         int count;
         String primaryKey = uri.getLastPathSegment();
         if (TextUtils.isEmpty(where)) {

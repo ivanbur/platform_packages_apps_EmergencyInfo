@@ -234,7 +234,7 @@ public class EmergencyContactsPreference extends PreferenceCategory
      * ContactsContract.CommonDataKinds.Phone.CONTENT_URI corresponding to the
      * contact's selected phone number.
      */
-    public void addNewEmergencyContact(Uri contactsPhoneUri) {
+    public Uri addNewEmergencyContact(Uri contactsPhoneUri) {
         // The contactsPhoneUri comes from the Contacts app, so it is a
         // ContactsContract.CommonDataKinds.Phone.CONTENT_URI. We change it to be
         // an emergencyContactsPhoneUri.
@@ -242,12 +242,16 @@ public class EmergencyContactsPreference extends PreferenceCategory
         ContentValues values = createContentValuesFromContactsUri(contactsPhoneUri);
         if (values == null) {
             // This means that we could not look up the contact
-            return;
+            return null;
         }
 
-        Uri eContactsPhoneUri = Uri.withAppendedPath(EmergencyContactProvider.AUTHORITY_URI, values.getAsString(ContactsContract.Contacts._ID));
+        Uri eContactsPhoneUri = Uri.withAppendedPath(
+                EmergencyContactProvider.AUTHORITY_URI,
+                "data/"+values.getAsString(ContactsContract.Contacts._ID)
+        );
+
         if (mEmergencyContacts.contains(eContactsPhoneUri)) {
-            return;
+            return null;
         }
 
         getContext().getContentResolver().insert(eContactsPhoneUri, values);
@@ -255,13 +259,15 @@ public class EmergencyContactsPreference extends PreferenceCategory
         if (!mContactValidator.isValidEmergencyContact(getContext(), eContactsPhoneUri)) {
             Toast.makeText(getContext(), getContext().getString(R.string.fail_add_contact),
                 Toast.LENGTH_LONG).show();
-            return;
+            return null;
         }
         List<Uri> updatedContacts = new ArrayList<Uri>(mEmergencyContacts);
         if (updatedContacts.add(eContactsPhoneUri) && callChangeListener(updatedContacts)) {
             MetricsLogger.action(getContext(), MetricsEvent.ACTION_ADD_EMERGENCY_CONTACT);
             setEmergencyContacts(updatedContacts);
         }
+
+        return eContactsPhoneUri;
     }
 
     @VisibleForTesting
@@ -269,9 +275,9 @@ public class EmergencyContactsPreference extends PreferenceCategory
         return mEmergencyContacts;
     }
 
-    public void updateEmergencyContactsDatabase(List<Uri> oldEmergencyContacts) {
-        for (Uri eContactPhoneUri : oldEmergencyContacts) {
-            if (!mEmergencyContacts.contains(eContactPhoneUri)) {
+    public void updateEmergencyContactsDatabase(List<Uri> emergencyContacts) {
+        for (Uri eContactPhoneUri : mEmergencyContacts) {
+            if (!emergencyContacts.contains(eContactPhoneUri)) {
                 getContext().getContentResolver().delete(eContactPhoneUri, null, null);
             } else if (isUserUnlocked(getContext())) {
                 ContentValues old_data = createContentValuesFromEmergencyContactsUri(eContactPhoneUri);
@@ -284,15 +290,32 @@ public class EmergencyContactsPreference extends PreferenceCategory
                                 null);
                     }
                 } else {
-                    // TODO: log
+                    Log.w(TAG, "Stale Emergency Contact already deleted");
                 }
+            }
+        }
+
+        // migration implementation: prior to the emergencycontact database was implemented,
+        // emergencycontacts were stored as a comma-separated persisted string of all the
+        // Contact App URIs selected as emergency contacts. This converts those URIs to
+        // EmergencyContact App URIs and adds them to the EmergencyContact database
+        for (int i = 0; i < emergencyContacts.size(); i++) {
+            Uri phoneUri = emergencyContacts.get(i);
+            if (!phoneUri.getAuthority().equals(ContactsContract.AUTHORITY)) {
+                continue;
+            }
+
+            Uri eContactPhoneUri = addNewEmergencyContact(phoneUri);
+            if (eContactPhoneUri != null) {
+                emergencyContacts.set(i, eContactPhoneUri);
             }
         }
     }
 
     public void setEmergencyContacts(List<Uri> emergencyContacts) {
+        updateEmergencyContactsDatabase(emergencyContacts);
+
         final boolean changed = !mEmergencyContacts.equals(emergencyContacts);
-        List<Uri> oldEmergencyContacts = new ArrayList<Uri>(mEmergencyContacts);
         if (changed || !mEmergencyContactsSet) {
             mEmergencyContacts = emergencyContacts;
             mEmergencyContactsSet = true;
@@ -301,7 +324,7 @@ public class EmergencyContactsPreference extends PreferenceCategory
                 notifyChanged();
             }
         }
-        updateEmergencyContactsDatabase(oldEmergencyContacts);
+
 
         while (getPreferenceCount() - emergencyContacts.size() > 0) {
             removePreference(getPreference(0));
@@ -310,7 +333,7 @@ public class EmergencyContactsPreference extends PreferenceCategory
         // Reload the preferences or add new ones if necessary
         Iterator<Uri> it = emergencyContacts.iterator();
         int i = 0;
-        Uri phoneUri = null;
+        Uri phoneUri;
         List<Uri> updatedEmergencyContacts = null;
         while (it.hasNext()) {
             ContactPreference contactPreference = null;
