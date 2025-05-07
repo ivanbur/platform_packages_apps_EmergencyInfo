@@ -20,9 +20,12 @@ import android.content.Context;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+
+import com.android.emergency.provider.EmergencyContactProvider;
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import android.net.Uri;
+import android.os.UserManager;
 import android.provider.ContactsContract;
 import android.util.Log;
 
@@ -43,16 +46,15 @@ public class EmergencyContactManager {
         String phoneType = null;
         String name = null;
         Bitmap photo = null;
-        final Uri contactLookupUri =
-                ContactsContract.Contacts.getLookupUri(context.getContentResolver(),
-                        phoneUri);
+        Uri contactLookupUri = null;
         Cursor cursor = context.getContentResolver().query(
                 phoneUri,
                 new String[]{ContactsContract.Contacts.DISPLAY_NAME,
                         ContactsContract.CommonDataKinds.Phone.NUMBER,
                         ContactsContract.CommonDataKinds.Phone.TYPE,
                         ContactsContract.CommonDataKinds.Phone.LABEL,
-                        ContactsContract.CommonDataKinds.Photo.PHOTO_ID},
+                        ContactsContract.CommonDataKinds.Photo.PHOTO_ID,
+                        ContactsContract.Contacts.LOOKUP_KEY},
                 null, null, null);
         try {
             if (cursor.moveToNext()) {
@@ -63,6 +65,7 @@ public class EmergencyContactManager {
                         cursor.getInt(2),
                         cursor.getString(3)).toString();
                 Long photoId = cursor.getLong(4);
+                contactLookupUri = Uri.parse(cursor.getString(5));
                 if (photoId != null && photoId > 0) {
                     Uri photoUri = ContentUris.withAppendedId(ContactsContract.Data.CONTENT_URI,
                             photoId);
@@ -71,7 +74,7 @@ public class EmergencyContactManager {
                             new String[]{ContactsContract.Contacts.Photo.PHOTO},
                             null, null, null);
                     try {
-                        if (cursor2.moveToNext()) {
+                        if (cursor2 != null && cursor2.moveToNext()) {
                             byte[] data = cursor2.getBlob(0);
                             if (data != null) {
                                 photo = BitmapFactory.decodeStream(new ByteArrayInputStream(data));
@@ -94,7 +97,39 @@ public class EmergencyContactManager {
 
     /** Returns whether the phone uri is not null and corresponds to an existing phone number. */
     public static boolean isValidEmergencyContact(Context context, Uri phoneUri) {
-        return phoneUri != null && phoneExists(context, phoneUri);
+        Cursor cursor = null;
+        Uri contactUri = null;
+        if (phoneUri == null) {
+            return false;
+        }
+        try {
+            cursor = context.getContentResolver().query(phoneUri, new String[]{
+                    EmergencyContactProvider.CONTACT_URI_COLUMN}, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                // If the contact exists inside of the EmergencyContacts database,
+                // find the contactLookupUri to make sure it is still a valid contact
+                contactUri = Uri.parse(cursor.getString(0));
+            } else {
+                // If the contact does not exist inside of the EmergencyContacts database,
+                // it's definitely not valid
+                return false;
+            }
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        // Avoid looking up the contact in direct boot mode, as the ContactProvider is
+        // not direct boot aware
+        if (!isUserUnlocked(context)) {
+            return true;
+        }
+        return contactUri != null && phoneExists(context, contactUri);
+    }
+
+    private static boolean isUserUnlocked(Context context) {
+        UserManager userManager = context.getSystemService(UserManager.class);
+        return userManager != null && userManager.isUserUnlocked();
     }
 
     private static boolean phoneExists(Context context, Uri phoneUri) {
@@ -157,7 +192,8 @@ public class EmergencyContactManager {
         }
 
         /**
-         * The phone uri as defined in ContactsContract.CommonDataKinds.Phone.CONTENT_URI. Use
+         * The phone uri is used to query a database containing the phone number, the name, the phone type, the photo,
+         * the ContactsContract.CommonDataKinds.Phone.CONTENT_URI, and the CONTENT_LOOKUP_URI. Use
          * this to reload the contact. This links to a particular phone number of the emergency
          * contact.
          */

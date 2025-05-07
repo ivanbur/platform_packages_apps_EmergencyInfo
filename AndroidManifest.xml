@@ -178,6 +178,12 @@
         </provider>
 
         <provider
+            android:name=".provider.EmergencyContactProvider"
+            android:authorities="com.android.emergency.contacts"
+            android:directBootAware="true"
+            android:exported="false" />
+
+        <provider
             android:name=".EmergencyGestureContentProvider"
             android:authorities="com.android.emergency.gesture"
             android:permission="android.permission.CALL_PRIVILEGED"/>
